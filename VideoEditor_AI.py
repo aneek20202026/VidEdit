@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
-from moviepy.editor import VideoFileClip, AudioFileClip
+from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_audioclips
+from moviepy.audio.AudioClip import AudioClip
 import os
 import io
 from google.cloud import speech,texttospeech
@@ -23,15 +24,15 @@ def AI_Editor(text,tot_time):
                 "Convert the SSML format into plain text, adding appropriate punctuation to reflect the break times."
                 "Each break should be represented by a suitable punctuation mark (such as a comma, period, ellipsis, or dash) to mimic the duration of the pauses."
                 "Replace filler words such as 'umms' and 'hmms' with appropriate punctuation to reflect the length of those pauses."
-                "If there is a pause before the voice starts, add suitable punctuation to reflect that time as well. Ensure the pauses and overall pacing of the speech remain intact."
                 "Please ensure that the final text reflects the natural flow of speech, maintaining the original timing and pacing of the audio."
                 "Do not use code block formatting.\n\n"
                 f"Original audio: {text}"
-                f"Overall duration: {tot_time}s"
+                f"Overall duration: {tot_time} seconds"
             )
+                # "If there is a pause before the voice starts, add suitable punctuation to reflect that time as well. Ensure the pauses and overall pacing of the speech remain intact."
             data = {
                 "messages": [
-                    {"role": "system", "content": "You will receive SSML format text. The overall time will be mentioned. Correct the grammar and keep the overall time same."},
+                    {"role": "system", "content": "You will receive SSML format text. The overall time will be mentioned."},
                     {"role": "user", "content": prompt}
                 ],
                 "max_tokens": 500 
@@ -81,29 +82,31 @@ def speech_to_text(audio_path):
                 })
                 overall_time=word.end_time.total_seconds()
                 
-    formatted_text=timestamps_to_ssml(timestamps)
+    formatted_text,delay_time=timestamps_to_ssml(timestamps)
 
-    return transcript, formatted_text,overall_time
+    return transcript, formatted_text,overall_time, delay_time
 
 def timestamps_to_ssml(timestamps):
     ssml_output = "<speak>"
-    previous_end_time = 0.0
+    previous_end_time, delay_time = 0.0 , 0.0
 
-    for entry in timestamps:
+    for index,entry in enumerate(timestamps):
         word = entry['word']
         start = entry['start_time']
         end = entry['end_time']
         if start > previous_end_time:
             gap = start - previous_end_time
             ssml_output += f"<break time='{gap:.1f}s'/>"
+        if index==0:delay_time=gap
         ssml_output += f" {word}"
         previous_end_time = end
 
     ssml_output += " </speak>"
-    return ssml_output
+    return ssml_output , delay_time
 
-def text_to_speech(text, output_audio_path="temp/final_audio.mp3", model="en-US-Journey-F"):
+def text_to_speech(text, output_audio_path="temp/final_audio.mp3", model="en-US-Journey-D"):
     client = texttospeech.TextToSpeechClient()
+    # synthesis_input = texttospeech.SynthesisInput(ssml=text)
     synthesis_input = texttospeech.SynthesisInput(text=text)
     voice = texttospeech.VoiceSelectionParams(
         name=model,
@@ -118,9 +121,12 @@ def text_to_speech(text, output_audio_path="temp/final_audio.mp3", model="en-US-
     with open(output_audio_path, "wb") as out:
         out.write(response.audio_content)
         
-def replace_audio_in_video(video_path, new_audio_path="temp/final_audio.mp3", output_video_path="temp/final_video.mp4"):
+def replace_audio_in_video(video_path, new_audio_path="temp/final_audio.mp3", output_video_path="temp/final_video.mp4",delay_time=0):
     video_clip = VideoFileClip(video_path)
     new_audio = AudioFileClip(new_audio_path)
+    if delay_time > 0:
+        silent_audio = AudioClip(lambda t: 0, duration=delay_time)
+        new_audio = concatenate_audioclips([silent_audio, new_audio])
     final_video = video_clip.set_audio(new_audio)
     final_video.write_videofile(output_video_path, codec='libx264', audio_codec='aac')
 
@@ -147,14 +153,15 @@ def main():
         if st.button("Enhance audio"):
             audio_path = extract_audio_from_video(video_path)
             with st.spinner("Transcribing..."):
-                transcript,format_text,tot_time = speech_to_text(audio_path)
+                transcript,format_text,tot_time, delay_time = speech_to_text(audio_path)
             with st.spinner("Correcting..."):
                 corr_script=AI_Editor(format_text,tot_time)
-            # print(corr_script)
+            print(transcript,format_text,delay_time)
+            print(corr_script)
             with st.spinner("Converting to audio..."):
                 text_to_speech(corr_script)
             with st.spinner("Replacing audio in the provided video..."):
-                output_video_path=replace_audio_in_video(video_path)
+                output_video_path=replace_audio_in_video(video_path,delay_time=delay_time)
             st.success("Audio replaced successfully!")
             st.video(output_video_path)
 
