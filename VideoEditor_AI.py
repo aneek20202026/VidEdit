@@ -5,6 +5,8 @@ import os
 import io
 from google.cloud import speech,texttospeech
 
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "application_default_credentials.json"
+
 uploaded_video=None
 
 def AI_Editor(text,tot_time):
