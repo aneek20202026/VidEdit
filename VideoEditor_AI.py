@@ -156,8 +156,8 @@ def main():
                 transcript,format_text,tot_time, delay_time = speech_to_text(audio_path)
             with st.spinner("Correcting..."):
                 corr_script=AI_Editor(format_text,tot_time)
-            print(transcript,format_text,delay_time)
-            print(corr_script)
+            # print(transcript,format_text,delay_time)
+            # print(corr_script)
             with st.spinner("Converting to audio..."):
                 text_to_speech(corr_script)
             with st.spinner("Replacing audio in the provided video..."):
